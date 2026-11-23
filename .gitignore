@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+agent_config.yaml
+*.db
+*.db-journal
+*.sqlite
+.DS_Store
+npm-debug.log*
+
+# Working notes, not part of the submission.
+.agents/
+context/
+CLAUDE.md
+GLOSSARY.md

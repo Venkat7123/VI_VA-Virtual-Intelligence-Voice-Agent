@@ -72,6 +72,9 @@ function holdingResult(sessionId: string, say: string): ResultMessage {
 
 const TIMEOUT_SAY = 'One moment — I am still checking that.';
 
+/** How long `start()` waits for BAND to report a room before giving up on it. */
+const ROOM_WAIT_MS = 15_000;
+
 interface Pending {
   resolve: (r: ResultMessage) => void;
   timer: NodeJS.Timeout;
@@ -138,8 +141,33 @@ class BandEdithLink implements EdithLink {
     if (this.#started) return;
     this.#started = true;
     await this.#agent.start();
-    // Posting needs a room id, and the room arrives as an event after connect.
-    await this.#roomReady;
+
+    // Posting needs a room id, and the room arrives as an event some seconds
+    // after connect. Waiting on it unbounded would hang the whole server with
+    // no message on screen, so warn loudly and carry on instead: the page and
+    // the text fallback still work, and `send` degrades to a holding reply.
+    const roomId = await this.#waitForRoom(ROOM_WAIT_MS);
+    if (!roomId) {
+      this.#log.error(
+        `[band] joined no room within ${ROOM_WAIT_MS}ms — is this agent a ` +
+          'member of a room in the BAND dashboard? Continuing without EDITH.',
+      );
+    }
+  }
+
+  /** Resolves with the room id, or null if none arrives in time. Never rejects. */
+  async #waitForRoom(ms: number): Promise<string | null> {
+    if (this.#roomId) return this.#roomId;
+    let timer: NodeJS.Timeout;
+    const expired = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), ms);
+      timer.unref?.();
+    });
+    try {
+      return await Promise.race([this.#roomReady, expired]);
+    } finally {
+      clearTimeout(timer!);
+    }
   }
 
   async stop(): Promise<void> {
@@ -157,7 +185,17 @@ class BandEdithLink implements EdithLink {
     if (!this.#started) throw new Error('EdithLink.send called before start()');
 
     const sessionId = message.session_id;
-    const roomId = this.#roomId ?? (await this.#roomReady);
+
+    const roomId = await this.#waitForRoom(this.#options.timeoutMs);
+    if (!roomId) {
+      this.#options.onTraffic?.({
+        at: new Date().toISOString(),
+        direction: 'out',
+        payload: { session_id: sessionId },
+        note: 'no BAND room — message not sent',
+      });
+      return holdingResult(sessionId, 'Sorry, I cannot reach the booking system right now.');
+    }
 
     // One in-flight send per session. A second one means the caller re-asked
     // before we answered; let the older one go rather than lose its resolve.

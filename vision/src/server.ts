@@ -19,16 +19,23 @@ import { createFakeEdithLink } from './fake-edith-link.ts';
 import { detectEmergency, EMERGENCY_SAY } from './emergency.ts';
 import { classifyIntent } from './intent.ts';
 import { loadEnvOrExit } from './env.ts';
+import { createTrafficLog } from './traffic-log.ts';
+import { buildOpenApiDocument } from './openapi.ts';
 
 const env = loadEnvOrExit();
 const PAGE = fileURLToPath(new URL('../public/index.html', import.meta.url));
 
+/** R4. Fed by the link, read by the page. Entries are redacted on the way in. */
+const traffic = createTrafficLog();
+const onTraffic = traffic.record;
+
 const link: EdithLink = env.useFakeEdith
-  ? createFakeEdithLink({})
+  ? createFakeEdithLink({ onTraffic })
   : createBandEdithLink({
       config: env.band,
       edithAgentId: env.edithAgentId,
       timeoutMs: env.edithTimeoutMs,
+      onTraffic,
     });
 
 const app = Fastify({ logger: false });
@@ -65,6 +72,20 @@ app.get('/healthz', async () => ({
   ok: true,
   edith: env.useFakeEdith ? 'fake' : 'band',
 }));
+
+/**
+ * R4 — the live BAND log the page renders beside the transcript.
+ * `?since=<seq>` returns only what is new, so the page can poll cheaply.
+ */
+app.get<{ Querystring: { since?: string } }>('/log', async (request) => {
+  const since = Number(request.query.since ?? 0);
+  const entries = traffic.entries(Number.isFinite(since) ? since : 0);
+  return { entries, latest: entries.at(-1)?.seq ?? since };
+});
+
+/** The spec Lyzr imports to create its custom tool. */
+const openApiDocument = buildOpenApiDocument(env.publicUrl);
+app.get('/openapi.json', async () => openApiDocument);
 
 app.post<{ Body: AskEdithBody }>(
   '/tools/ask_edith',

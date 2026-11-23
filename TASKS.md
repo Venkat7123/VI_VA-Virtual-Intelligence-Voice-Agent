@@ -82,9 +82,14 @@ architecture is unknown any more — the rest is building.
 - [x] Emergency-word check → "call 112", never reaches EDITH (R13)
 - [x] `vision/src/intent.ts` — keyword intent fallback when Lyzr sends none
 - [x] Graceful answer when EDITH times out ("One moment — I am still checking")
-- [ ] `GET /log` — live BAND message log, phone masked (R4)
-      *(`onTraffic` hook already exists on `EdithLink`; just needs a buffer + route)*
-- [ ] `GET /openapi.json` — the spec Lyzr reads
+- [x] `GET /log` — live BAND message log, phone masked (R4). Bounded ring
+      buffer, `?since=<seq>` for cheap polling. Redaction verified: a confirm
+      logs `"phone":"98xxxxxx10"` and `"name":"<name>"`.
+- [x] `GET /openapi.json` — the spec Lyzr reads. OpenAPI 3.0.3 (not 3.1 —
+      importer support is patchy). Descriptions are written at the model.
+      *[unverified] the shape Lyzr's importer wants is still unconfirmed.*
+- [x] `start()` no longer hangs forever when BAND reports no room: bounded
+      15s wait, loud warning, and `send` degrades to a sayable reply
 - [ ] Spoken-yes gate before book/reschedule/cancel (R8)
 - [ ] Phone read-back digit by digit + 10-digit check (R9)
 
@@ -165,7 +170,7 @@ Book and look up are never cut.
 | R1 | Voice in/out via Lyzr | 4 | [ ] |
 | R2 | Text box fallback | 3 | [ ] |
 | R3 | Every turn to EDITH with session ID | 2 | [x] |
-| R4 | All messages via BAND, logged, phone masked | 2,3 | [ ] |
+| R4 | All messages via BAND, logged, phone masked | 2,3 | [x] `/log`, [ ] page |
 | R5 | Ask which branch | — | EDITH |
 | R6 | Timing verified in code | — | EDITH |
 | R7 | Up to 3 alternatives | — | EDITH |

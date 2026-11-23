@@ -65,7 +65,20 @@ export interface ConfirmMessage {
   to: 'edith';
   type: 'confirm';
   session_id: string;
-  slot_id: string;
+  /**
+   * OPTIONAL, and only ever a cross-check.
+   *
+   * EDITH is authoritative: it offered the slot with `needs_confirm`, so it
+   * already knows which slot this session is holding. If Vision had to supply
+   * it, Vision would have to remember a booking detail between turns — and the
+   * one rule this architecture rests on is that EDITH owns booking state.
+   *
+   * Send it when it is to hand. When both are present and they disagree,
+   * EDITH's own held slot wins and Vision's value is ignored.
+   *
+   * Changed 23 Nov (was required). EDITH imports this file — Member B must know.
+   */
+  slot_id?: string;
   name: string;
   /** Exactly 10 digits. Vision reads it back digit by digit before sending. */
   phone: string;

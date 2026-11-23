@@ -69,19 +69,28 @@ architecture is unknown any more — the rest is building.
 
 ## Phase 2 — Vision server
 
-- [ ] Fastify server boots, serves `GET /`
-- [ ] BAND agent embedded in the same process
-- [ ] **The sync/async bridge** — `pendingBySession` map, timeout, cleanup
-      *(design in `context/architecture.md` — the top risk in the PRD)*
-      *(both halves now proven by `scripts/band-a2a.ts`: post outside a turn via
-      `link.rest.createChatMessage`, match the reply by `session_id`)*
-- [ ] `POST /tools/ask_edith` — takes `{session_id, user_said}`, returns `{say}`
-- [ ] `GET /openapi.json` — the spec Lyzr reads
+- [x] `vision/src/env.ts` — config read and checked once, fails loud at boot
+- [x] Fastify server boots, serves `GET /` (+ `GET /healthz`)
+- [x] BAND agent embedded in the same process (`vision/src/edith-link.ts`)
+- [x] **The sync/async bridge** — `pendingBySession` map, timeout, cleanup on
+      both paths, late replies dropped. Verified over real BAND 23 Nov.
+- [x] `FakeEdithLink` — the second adapter at the seam; `VISION_FAKE_EDITH=1`
+      runs the whole server with no BAND and no stub
+- [x] `POST /tools/ask_edith` — mints a `session_id` when the caller has none,
+      returns `{session_id, status, say, options}`. Verified against the fake
+      *and* against real BAND end to end.
+- [x] Emergency-word check → "call 112", never reaches EDITH (R13)
+- [x] `vision/src/intent.ts` — keyword intent fallback when Lyzr sends none
+- [x] Graceful answer when EDITH times out ("One moment — I am still checking")
 - [ ] `GET /log` — live BAND message log, phone masked (R4)
-- [ ] Emergency-word check → "call 112", nothing booked (R13)
+      *(`onTraffic` hook already exists on `EdithLink`; just needs a buffer + route)*
+- [ ] `GET /openapi.json` — the spec Lyzr reads
 - [ ] Spoken-yes gate before book/reschedule/cancel (R8)
 - [ ] Phone read-back digit by digit + 10-digit check (R9)
-- [ ] Graceful answer when EDITH times out ("one moment")
+
+**Measured 23 Nov:** a BAND round trip is **~3.5s typical, 12.3s worst seen**.
+Default `EDITH_TIMEOUT_MS` raised 8s → 12s. The PRD's "about 3 seconds per turn"
+is not achievable over BAND and needs correcting. See `context/latency.md`.
 
 ## Phase 3 — Web page
 
@@ -131,6 +140,10 @@ architecture is unknown any more — the rest is building.
 - `[!]` **EDITH itself** — Venkat chose to wait rather than mock it, so the full chain
   stays unproven until it lands. A throwaway mock is ~30 lines if that gets tight.
 - `[ ]` Lyzr web-embed method — unconfirmed, see `context/open-questions.md`
+- `[!]` **Lyzr's tool-call timeout** — now the most important unknown. Our budget
+  must sit under it, and BAND outliers reach 12s. See `context/latency.md`.
+- `[ ]` Push to a public GitHub repo — committed locally on `main`, but `gh` is
+  not installed and no remote is set. Needs Venkat.
 
 ## Deferred / cut
 
@@ -151,7 +164,7 @@ Book and look up are never cut.
 | --- | --- | --- | --- |
 | R1 | Voice in/out via Lyzr | 4 | [ ] |
 | R2 | Text box fallback | 3 | [ ] |
-| R3 | Every turn to EDITH with session ID | 2 | [ ] |
+| R3 | Every turn to EDITH with session ID | 2 | [x] |
 | R4 | All messages via BAND, logged, phone masked | 2,3 | [ ] |
 | R5 | Ask which branch | — | EDITH |
 | R6 | Timing verified in code | — | EDITH |
@@ -161,6 +174,6 @@ Book and look up are never cut.
 | R10 | One-transaction booking | — | EDITH |
 | R11 | Both on Agent37, Node 22.12+ | 5 | [ ] |
 | R12 | Lookup / reschedule / cancel (P1) | — | EDITH |
-| R13 | Escalation (P1) | 2 | [ ] |
+| R13 | Escalation (P1) | 2 | [x] Vision side |
 | R14 | Passcode / rate limit (P1) | 3 | [ ] |
 | R15 | Finch (P2) | — | [-] cut |

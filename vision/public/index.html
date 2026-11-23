@@ -3,30 +3,406 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>VI-VA</title>
+    <title>VI-VA — book a hospital appointment by talking</title>
     <style>
+      :root {
+        --bg: #0e1016;
+        --panel: #161a24;
+        --panel-2: #1b2030;
+        --line: #272d3d;
+        --text: #e8eaf0;
+        --muted: #8b93a7;
+        --accent: #6ea8fe;
+        --vision: #6ea8fe;
+        --edith: #5fd3a6;
+        --warn: #f0b354;
+        --danger: #f2777a;
+      }
+      * { box-sizing: border-box; }
       body {
         margin: 0;
-        padding: 3rem 1.5rem;
-        font: 16px/1.6 system-ui, sans-serif;
-        background: #11131a;
-        color: #e7e9ee;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
       }
-      main { max-width: 34rem; margin: 0 auto; }
-      h1 { margin: 0 0 0.25rem; font-size: 1.6rem; letter-spacing: -0.01em; }
-      p { color: #99a0b0; }
-      code { color: #e7e9ee; background: #1b1e28; padding: 0.1em 0.4em; border-radius: 4px; }
+      header {
+        padding: 1.1rem 1.5rem;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: baseline;
+        gap: 0.85rem;
+        flex-wrap: wrap;
+      }
+      h1 { margin: 0; font-size: 1.15rem; letter-spacing: -0.01em; }
+      .tag {
+        font-size: 0.75rem;
+        color: var(--muted);
+        border: 1px solid var(--line);
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+      }
+      .spacer { flex: 1; }
+
+      main {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1px;
+        background: var(--line);
+        height: calc(100vh - 60px);
+      }
+      @media (max-width: 860px) {
+        main { grid-template-columns: 1fr; height: auto; }
+      }
+      section {
+        background: var(--bg);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .head {
+        padding: 0.7rem 1.1rem;
+        border-bottom: 1px solid var(--line);
+        font-size: 0.8rem;
+        color: var(--muted);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+      }
+      .scroll { flex: 1; overflow-y: auto; padding: 1.1rem; min-height: 14rem; }
+
+      /* ---- transcript ---- */
+      .turn { margin-bottom: 0.9rem; display: flex; }
+      .turn.user { justify-content: flex-end; }
+      .bubble {
+        max-width: 85%;
+        padding: 0.55rem 0.85rem;
+        border-radius: 12px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        white-space: pre-wrap;
+      }
+      .turn.user .bubble { background: #233150; border-color: #2d3f66; }
+      .status {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        margin-bottom: 0.2rem;
+      }
+      .status.escalated, .status.unavailable { color: var(--warn); }
+      .status.booked { color: var(--edith); }
+
+      .options { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.55rem; }
+      .options button {
+        font: inherit;
+        font-size: 0.85rem;
+        background: var(--panel-2);
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 0.25rem 0.7rem;
+        cursor: pointer;
+      }
+      .options button:hover { border-color: var(--accent); }
+
+      .thinking { color: var(--muted); font-style: italic; }
+
+      /* ---- composer ---- */
+      form {
+        border-top: 1px solid var(--line);
+        padding: 0.8rem 1.1rem 1rem;
+        display: flex;
+        gap: 0.5rem;
+      }
+      input[type="text"] {
+        flex: 1;
+        font: inherit;
+        padding: 0.6rem 0.8rem;
+        border-radius: 9px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+      }
+      input[type="text"]:focus { outline: none; border-color: var(--accent); }
+      button.send {
+        font: inherit;
+        padding: 0.6rem 1.1rem;
+        border-radius: 9px;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: #0e1016;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+
+      .samples {
+        padding: 0 1.1rem 0.9rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+      }
+      .samples button {
+        font: inherit;
+        font-size: 0.78rem;
+        background: transparent;
+        color: var(--muted);
+        border: 1px dashed var(--line);
+        border-radius: 999px;
+        padding: 0.2rem 0.65rem;
+        cursor: pointer;
+      }
+      .samples button:hover { color: var(--text); border-color: var(--accent); }
+
+      /* ---- band log ---- */
+      .entry {
+        border: 1px solid var(--line);
+        border-left-width: 3px;
+        border-radius: 8px;
+        padding: 0.5rem 0.7rem;
+        margin-bottom: 0.6rem;
+        background: var(--panel);
+      }
+      .entry.out { border-left-color: var(--vision); }
+      .entry.in { border-left-color: var(--edith); }
+      .entry .who {
+        font-size: 0.72rem;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        display: flex;
+        gap: 0.5rem;
+        margin-bottom: 0.3rem;
+      }
+      .entry.out .who strong { color: var(--vision); }
+      .entry.in .who strong { color: var(--edith); }
+      .entry pre {
+        margin: 0;
+        font: 12px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace;
+        color: #c3cbdd;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .entry .note {
+        margin-top: 0.3rem;
+        font-size: 0.75rem;
+        color: var(--warn);
+      }
+      .empty { color: var(--muted); font-size: 0.88rem; }
+      .legend { font-size: 0.72rem; color: var(--muted); text-transform: none; letter-spacing: 0; }
+      .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
     </style>
   </head>
   <body>
-    <main>
+    <header>
       <h1>VI-VA</h1>
-      <p>Book a hospital appointment by talking.</p>
-      <p>
-        The server is up. The page itself is Phase&nbsp;3 — text box first, then
-        the live BAND log, then the voice widget. Until then the endpoint is
-        <code>POST /tools/ask_edith</code>.
-      </p>
+      <span class="tag">Virtual Intelligence Voice Agent</span>
+      <span class="spacer"></span>
+      <span class="tag" id="edith-mode">connecting…</span>
+      <span class="tag" id="session-tag">no session</span>
+      <button class="samples-reset tag" id="reset" style="cursor:pointer;background:none;color:var(--muted)">
+        new session
+      </button>
+    </header>
+
+    <main>
+      <section>
+        <div class="head">
+          Conversation
+          <span class="legend">— text fallback; voice widget lands in Phase&nbsp;4</span>
+        </div>
+        <div class="scroll" id="transcript"></div>
+        <div class="samples">
+          <button data-say="Book an appointment at Apollo">book at Apollo</button>
+          <button data-say="the OMR one">the OMR one</button>
+          <button data-say="tomorrow evening">tomorrow evening</button>
+          <button data-say="When is my appointment?">look up</button>
+          <button data-say="I want to talk to a person">escalate</button>
+          <button data-say="My father has chest pain">emergency</button>
+        </div>
+        <form id="composer">
+          <input
+            type="text"
+            id="say"
+            autocomplete="off"
+            placeholder="Type what you would say out loud…"
+          />
+          <button class="send" type="submit">Send</button>
+        </form>
+      </section>
+
+      <section>
+        <div class="head">
+          BAND — agent to agent
+          <span class="legend">
+            <span class="dot" style="background:var(--vision)"></span> Vision
+            →
+            <span class="dot" style="background:var(--edith)"></span> EDITH
+            · phone masked
+          </span>
+        </div>
+        <div class="scroll" id="log">
+          <p class="empty">Nothing yet. Send a message and every BAND hop shows up here.</p>
+        </div>
+      </section>
     </main>
+
+    <script type="module">
+      const transcript = document.getElementById('transcript');
+      const logEl = document.getElementById('log');
+      const form = document.getElementById('composer');
+      const input = document.getElementById('say');
+      const sessionTag = document.getElementById('session-tag');
+      const modeTag = document.getElementById('edith-mode');
+
+      let sessionId = null;
+      let lastSeq = 0;
+      let busy = false;
+
+      const el = (tag, cls, text) => {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      };
+
+      const scrollDown = (node) => { node.scrollTop = node.scrollHeight; };
+
+      function addUser(text) {
+        const turn = el('div', 'turn user');
+        turn.append(el('div', 'bubble', text));
+        transcript.append(turn);
+        scrollDown(transcript);
+      }
+
+      function addAgent(result) {
+        const turn = el('div', 'turn');
+        const bubble = el('div', 'bubble');
+        if (result.status) bubble.append(el('div', `status ${result.status}`, result.status));
+        bubble.append(document.createTextNode(result.say));
+
+        // Choices are clickable purely to make testing and the demo quick.
+        if (Array.isArray(result.options) && result.options.length) {
+          const options = el('div', 'options');
+          for (const option of result.options) {
+            const button = el('button', null, option);
+            button.type = 'button';
+            button.addEventListener('click', () => send(option));
+            options.append(button);
+          }
+          bubble.append(options);
+        }
+        turn.append(bubble);
+        transcript.append(turn);
+        scrollDown(transcript);
+      }
+
+      function addThinking() {
+        const turn = el('div', 'turn');
+        turn.id = 'thinking';
+        turn.append(el('div', 'bubble thinking', 'VI-VA is checking with EDITH…'));
+        transcript.append(turn);
+        scrollDown(transcript);
+        return turn;
+      }
+
+      async function send(text) {
+        if (busy || !text.trim()) return;
+        busy = true;
+        input.value = '';
+        addUser(text);
+        const pending = addThinking();
+
+        try {
+          const body = { user_said: text };
+          if (sessionId) body.session_id = sessionId;
+
+          const res = await fetch('/tools/ask_edith', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const result = await res.json();
+          pending.remove();
+
+          if (!res.ok) {
+            addAgent({ status: 'error', say: result.message ?? 'Something went wrong.' });
+          } else {
+            sessionId = result.session_id;
+            sessionTag.textContent = sessionId;
+            addAgent(result);
+          }
+        } catch (err) {
+          pending.remove();
+          addAgent({ status: 'error', say: `Could not reach the server: ${err.message}` });
+        } finally {
+          busy = false;
+          input.focus();
+          pollLog();
+        }
+      }
+
+      /* ---- the BAND log (R4) ---- */
+
+      function renderEntry(entry) {
+        const node = el('div', `entry ${entry.direction}`);
+        const who = el('div', 'who');
+        const from = entry.direction === 'out' ? 'VISION → EDITH' : 'EDITH → VISION';
+        who.append(el('strong', null, from));
+        who.append(el('span', null, new Date(entry.at).toLocaleTimeString()));
+        if (entry.payload?.type) who.append(el('span', null, entry.payload.type));
+        if (entry.payload?.status) who.append(el('span', null, entry.payload.status));
+        node.append(who);
+        node.append(el('pre', null, JSON.stringify(entry.payload, null, 2)));
+        if (entry.note) node.append(el('div', 'note', entry.note));
+        return node;
+      }
+
+      async function pollLog() {
+        try {
+          const res = await fetch(`/log?since=${lastSeq}`);
+          if (!res.ok) return;
+          const { entries, latest } = await res.json();
+          if (!entries.length) return;
+
+          logEl.querySelector('.empty')?.remove();
+          for (const entry of entries) logEl.append(renderEntry(entry));
+          lastSeq = latest ?? lastSeq;
+          scrollDown(logEl);
+        } catch {
+          /* the page is useless if polling throws, so it never does */
+        }
+      }
+
+      /* ---- wiring ---- */
+
+      form.addEventListener('submit', (event) => {
+        event.preventDefault();
+        send(input.value);
+      });
+
+      for (const button of document.querySelectorAll('.samples button')) {
+        button.addEventListener('click', () => send(button.dataset.say));
+      }
+
+      document.getElementById('reset').addEventListener('click', () => {
+        sessionId = null;
+        sessionTag.textContent = 'no session';
+        transcript.replaceChildren();
+        input.focus();
+      });
+
+      fetch('/healthz')
+        .then((r) => r.json())
+        .then((h) => {
+          modeTag.textContent = h.edith === 'fake' ? 'EDITH: fake (no BAND)' : 'EDITH: over BAND';
+        })
+        .catch(() => { modeTag.textContent = 'server unreachable'; });
+
+      setInterval(pollLog, 1500);
+      pollLog();
+      input.focus();
+    </script>
   </body>
 </html>

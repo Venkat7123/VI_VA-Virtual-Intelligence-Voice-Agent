@@ -99,9 +99,14 @@ is not achievable over BAND and needs correcting. See `context/latency.md`.
 
 ## Phase 3 — Web page
 
-- [ ] **Text box fallback first** (R2) — this is the insurance; voice can fail, demo can't
-- [ ] Transcript view
-- [ ] Live BAND log beside it (R4) — *this is what judges look at*
+- [x] **Text box fallback** (R2) — the insurance. One HTML file, no build step,
+      no dependencies, served by `GET /`.
+- [x] Transcript view — status badge per reply; `needs_choice` options render as
+      clickable chips; a "checking with EDITH…" line covers the ~3.5s wait
+- [x] Live BAND log beside it (R4) — polls `/log?since=<seq>` every 1.5s,
+      colour-coded by direction, phone masked. *This is what judges look at.*
+- [x] Six sample-prompt buttons incl. the negative paths (escalate, emergency) —
+      makes the demo fast and repeatable on camera
 - [ ] Lyzr voice widget embedded (R1)
 - [ ] Passcode or rate limit (R14, P1)
 
@@ -168,9 +173,9 @@ Book and look up are never cut.
 | | Requirement | Phase | Status |
 | --- | --- | --- | --- |
 | R1 | Voice in/out via Lyzr | 4 | [ ] |
-| R2 | Text box fallback | 3 | [ ] |
+| R2 | Text box fallback | 3 | [x] |
 | R3 | Every turn to EDITH with session ID | 2 | [x] |
-| R4 | All messages via BAND, logged, phone masked | 2,3 | [x] `/log`, [ ] page |
+| R4 | All messages via BAND, logged, phone masked | 2,3 | [x] |
 | R5 | Ask which branch | — | EDITH |
 | R6 | Timing verified in code | — | EDITH |
 | R7 | Up to 3 alternatives | — | EDITH |

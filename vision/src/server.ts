@@ -21,9 +21,13 @@ import { classifyIntent } from './intent.ts';
 import { loadEnvOrExit } from './env.ts';
 import { createTrafficLog } from './traffic-log.ts';
 import { buildOpenApiDocument } from './openapi.ts';
+import { createConfirmFlow } from './confirm-flow.ts';
 
 const env = loadEnvOrExit();
 const PAGE = fileURLToPath(new URL('../public/index.html', import.meta.url));
+
+/** R8 + R9: the spoken-yes gate and the phone read-back, per session. */
+const confirmFlow = createConfirmFlow();
 
 /** R4. Fed by the link, read by the page. Entries are redacted on the way in. */
 const traffic = createTrafficLog();
@@ -100,6 +104,29 @@ app.post<{ Body: AskEdithBody }>(
       return { session_id, status: 'escalated', say: EMERGENCY_SAY };
     }
 
+    // R8/R9. Mid-handshake, most turns are answered here without troubling
+    // EDITH at all — a name or a phone number is Vision's business, not its.
+    if (confirmFlow.active(session_id)) {
+      const step = confirmFlow.advance(session_id, user_said);
+
+      if (step.kind === 'say') {
+        return { session_id, status: step.status, say: step.say };
+      }
+      if (step.kind === 'send') {
+        const confirmed = await link.send(step.message);
+        if (confirmed.status === 'needs_confirm') {
+          confirmFlow.begin(session_id, 'book', confirmed.slot?.slot_id);
+        }
+        return {
+          session_id,
+          status: confirmed.status,
+          say: confirmed.say,
+          options: confirmed.options,
+        };
+      }
+      // 'forward' — they changed the subject. Fall through as an ordinary turn.
+    }
+
     const turn: TurnMessage = {
       from: 'vision',
       to: 'edith',
@@ -111,6 +138,13 @@ app.post<{ Body: AskEdithBody }>(
     };
 
     const result = await link.send(turn);
+
+    // EDITH is holding a slot out for a yes. Nothing is written until it gets one.
+    if (result.status === 'needs_confirm') {
+      confirmFlow.begin(session_id, turn.intent, result.slot?.slot_id);
+    } else if (result.status === 'booked' || result.status === 'escalated') {
+      confirmFlow.clear(session_id);
+    }
 
     // `say` is the whole point: it is what gets spoken. The rest is for the page.
     return {

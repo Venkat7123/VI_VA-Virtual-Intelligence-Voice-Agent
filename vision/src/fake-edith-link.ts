@@ -123,10 +123,18 @@ class FakeEdithLink implements EdithLink {
     const said = message.user_said ?? '';
     const details = message.details ?? {};
 
-    state.chain ??= details.chain?.toLowerCase() ?? detectChain(said);
-    state.branch ??= details.branch ?? detectBranch(`${said} ${details.area ?? ''}`, state.chain);
+    // A later turn overrides an earlier one, so "actually make it Fortis Adyar"
+    // changes the booking instead of being ignored. Naming a different chain
+    // drops the branch with it.
+    const heardChain = details.chain?.toLowerCase() ?? detectChain(said);
+    if (heardChain && heardChain !== state.chain) {
+      state.chain = heardChain;
+      state.branch = undefined;
+    }
+    const heardBranch = details.branch ?? detectBranch(`${said} ${details.area ?? ''}`, state.chain);
+    if (heardBranch) state.branch = heardBranch;
     if (mentionsWhen(said) || details.day || details.time) {
-      state.day ??= details.day ?? said;
+      state.day = details.day ?? said;
     }
     this.#sessions.set(session_id, state);
 

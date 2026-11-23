@@ -90,8 +90,17 @@ architecture is unknown any more — the rest is building.
       *[unverified] the shape Lyzr's importer wants is still unconfirmed.*
 - [x] `start()` no longer hangs forever when BAND reports no room: bounded
       15s wait, loud warning, and `send` degrades to a sayable reply
-- [ ] Spoken-yes gate before book/reschedule/cancel (R8)
-- [ ] Phone read-back digit by digit + 10-digit check (R9)
+- [x] Spoken-yes gate before book/reschedule/cancel (R8) — `confirm-flow.ts`
+- [x] Phone read-back digit by digit + 10-digit check (R9)
+      *Verified on the wire: the confirm logs as `"name":"<name>"`,
+      `"phone":"98xxxxxx77"`. Booking completes end to end.*
+      Paths tested: yes → booked · no → nothing written · changing the subject
+      mid-confirm forwards to EDITH instead of trapping the user · a wrong
+      read-back re-asks · a short number is rejected before it reaches EDITH.
+      Cancel and reschedule need only the spoken yes — asking a caller's name
+      to cancel would be rude and pointless, so those go back as a plain turn.
+
+**Phase 2 is complete.**
 
 **Measured 23 Nov:** a BAND round trip is **~3.5s typical, 12.3s worst seen**.
 Default `EDITH_TIMEOUT_MS` raised 8s → 12s. The PRD's "about 3 seconds per turn"
@@ -179,8 +188,8 @@ Book and look up are never cut.
 | R5 | Ask which branch | — | EDITH |
 | R6 | Timing verified in code | — | EDITH |
 | R7 | Up to 3 alternatives | — | EDITH |
-| R8 | Spoken yes before any write | 2 | [ ] |
-| R9 | Name/phone only in confirm, read back | 2 | [x] helpers, [ ] wired |
+| R8 | Spoken yes before any write | 2 | [x] |
+| R9 | Name/phone only in confirm, read back | 2 | [x] |
 | R10 | One-transaction booking | — | EDITH |
 | R11 | Both on Agent37, Node 22.12+ | 5 | [ ] |
 | R12 | Lookup / reschedule / cancel (P1) | — | EDITH |

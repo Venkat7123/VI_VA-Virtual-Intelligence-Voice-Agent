@@ -1,0 +1,743 @@
+{
+  "info": {
+    "name": "VI-VA — Vision",
+    "description": "Tests the endpoint the Lyzr voice agent calls.\n\nSet the `base` variable, or import one of the environment files:\n  - http://localhost:3001 — fake EDITH, deterministic, 150ms. Use this to verify the conversation flow.\n  - http://localhost:3000 — real BAND + EDITH stub. Use this to prove the agent-to-agent hop and to measure latency. The stub is STATELESS, so the multi-turn folders will not pass against it.\n\nEvery multi-turn folder mints its own session id in its first request, so each Collection Runner run is a clean conversation. Run folders in order; single-shot checks can run in any order.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base", "value": "http://localhost:3001", "type": "string" },
+    { "key": "sid_book", "value": "", "type": "string" },
+    { "key": "sid_decline", "value": "", "type": "string" },
+    { "key": "sid_change", "value": "", "type": "string" }
+  ],
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Runs after every request in the collection.",
+          "// EDITH_TIMEOUT_MS is 12000; Lyzr must never be left waiting longer.",
+          "pm.test('responded inside the 12s budget', function () {",
+          "  pm.expect(pm.response.responseTime).to.be.below(13000);",
+          "});"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "1 · Booking flow — run in order",
+      "description": "The happy path, seven turns on one session id. Turns 1-3 are EDITH's answers (wording varies by implementation, so only the status is asserted). Turns 4-7 are Vision's own confirm flow (R8, R9) and their wording is fixed.",
+      "item": [
+        {
+          "name": "T1 · Apollo → expect a branch question",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A fresh session per run, so nothing carries over from the last one.",
+                  "pm.collectionVariables.set('sid_book', 'book-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('session id echoed back', () =>",
+                  "  pm.expect(r.session_id).to.eql(pm.collectionVariables.get('sid_book')));",
+                  "pm.test('asks which branch', () =>",
+                  "  pm.expect(r.status).to.be.oneOf(['needs_choice', 'needs_info']));",
+                  "pm.test('has something sayable', () => pm.expect(r.say).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"I want an appointment at Apollo\",\n  \"session_id\": \"{{sid_book}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "T2 · the OMR one → expect a day/time question",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('moved on from the branch question', () =>",
+                  "  pm.expect(r.status).to.be.oneOf(['needs_info', 'needs_confirm']));",
+                  "// If this says 'which branch?' again, EDITH is not holding session state.",
+                  "pm.test('did not re-ask the branch', () =>",
+                  "  pm.expect(r.say.toLowerCase()).to.not.include('which one'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"the OMR one\",\n  \"session_id\": \"{{sid_book}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "T3 · tomorrow evening → expect a slot to confirm",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('offers a slot for confirmation', () =>",
+                  "  pm.expect(r.status).to.eql('needs_confirm'));",
+                  "pm.test('names the branch it was told', () =>",
+                  "  pm.expect(r.say).to.include('OMR'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"tomorrow evening\",\n  \"session_id\": \"{{sid_book}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "T4 · yes → R8 gate opens, asks for a name",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('asks for a name', () => {",
+                  "  pm.expect(r.status).to.eql('needs_info');",
+                  "  pm.expect(r.say.toLowerCase()).to.include('name');",
+                  "});",
+                  "// R9: nothing is booked yet. Personal data is collected only now.",
+                  "pm.test('nothing booked yet', () => pm.expect(r.status).to.not.eql('booked'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"yes\",\n  \"session_id\": \"{{sid_book}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "T5 · my name is Venkat → asks for the phone",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('strips the lead-in and uses the bare name', () =>",
+                  "  pm.expect(r.say).to.include('Venkat'));",
+                  "pm.test('asks for ten digits', () =>",
+                  "  pm.expect(r.say.toLowerCase()).to.include('ten digit'));",
+                  "// Answered by Vision itself - this turn never touches BAND.",
+                  "pm.test('answered locally, fast', () =>",
+                  "  pm.expect(pm.response.responseTime).to.be.below(500));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"my name is Venkat\",\n  \"session_id\": \"{{sid_book}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "T6 · +91 9876543210 → R9 digit-by-digit read-back",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('reads the number back one digit at a time', () => {",
+                  "  pm.expect(r.status).to.eql('needs_confirm');",
+                  "  pm.expect(r.say).to.include('9 8 7 6 5 4 3 2 1 0');",
+                  "});",
+                  "pm.test('+91 was stripped to ten digits', () =>",
+                  "  pm.expect(r.say).to.not.include('9 1 9 8'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"+91 9876543210\",\n  \"session_id\": \"{{sid_book}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "T7 · yes → booked",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('booked', () => pm.expect(r.status).to.eql('booked'));",
+                  "pm.test('gives a reference back', () =>",
+                  "  pm.expect(r.say.toLowerCase()).to.include('reference'));",
+                  "console.log('Now check GET /log?since=0 — the confirm line must show \"name\":\"<name>\" and a masked phone.');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"yes\",\n  \"session_id\": \"{{sid_book}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 · Decline — nothing is written (R8)",
+      "description": "Reach a slot, then refuse it. The point is that no booking happens and the caller is not trapped.",
+      "item": [
+        {
+          "name": "D1 · Apollo",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.collectionVariables.set('sid_decline', 'decline-' + Date.now());"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"Book me at Apollo\",\n  \"session_id\": \"{{sid_decline}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "D2 · the OMR one",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"the OMR one\",\n  \"session_id\": \"{{sid_decline}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "D3 · tomorrow evening → a slot is offered",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('a slot is on the table', () =>",
+                  "  pm.expect(pm.response.json().status).to.eql('needs_confirm'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"tomorrow evening\",\n  \"session_id\": \"{{sid_decline}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "D4 · no → nothing booked, no name or phone asked",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('not booked', () => pm.expect(r.status).to.not.eql('booked'));",
+                  "pm.test('says so plainly', () =>",
+                  "  pm.expect(r.say.toLowerCase()).to.include('not booked'));",
+                  "pm.test('no personal data requested on a refusal', () =>",
+                  "  pm.expect(r.say.toLowerCase()).to.not.include('mobile'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"no\",\n  \"session_id\": \"{{sid_decline}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 · Change of mind mid-confirm",
+      "description": "The confirm gate must not trap the caller. Anything that is not a yes or a no is forwarded to EDITH as an ordinary turn.",
+      "item": [
+        {
+          "name": "C1 · Apollo",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.collectionVariables.set('sid_change', 'change-' + Date.now());"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"Book me at Apollo\",\n  \"session_id\": \"{{sid_change}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "C2 · the OMR one",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"the OMR one\",\n  \"session_id\": \"{{sid_change}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "C3 · tomorrow evening → a slot is offered",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"tomorrow evening\",\n  \"session_id\": \"{{sid_change}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "C4 · actually make it Fortis Adyar → forwarded, not trapped",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('not treated as a yes or a no', () =>",
+                  "  pm.expect(r.say.toLowerCase()).to.not.include('please say yes or no'));",
+                  "pm.test('the correction reached EDITH', () =>",
+                  "  pm.expect(r.say).to.include('Fortis'));",
+                  "console.log('Confirm in GET /log?since=0 that the turn went out over BAND with the new wording.');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"actually make it Fortis Adyar\",\n  \"session_id\": \"{{sid_change}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 · Single-shot checks",
+      "description": "Each of these is self-contained — run in any order, no session needed.",
+      "item": [
+        {
+          "name": "Emergency → escalated, never reaches EDITH (R13)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('escalated', () => pm.expect(r.status).to.eql('escalated'));",
+                  "pm.test('tells them to call 112', () =>",
+                  "  pm.expect(r.say.toLowerCase()).to.include('one one two'));",
+                  "pm.test('states that nothing was booked', () =>",
+                  "  pm.expect(r.say.toLowerCase()).to.include('not booked'));",
+                  "// Short-circuited before the link, so this never crosses BAND at all.",
+                  "pm.test('answered instantly', () =>",
+                  "  pm.expect(pm.response.responseTime).to.be.below(300));",
+                  "console.log('Now check GET /log?since=0 — this turn must NOT appear.');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"My father has chest pain\",\n  \"session_id\": \"emergency-check\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "Escalate → handed to a person",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('escalated', () =>",
+                  "  pm.expect(pm.response.json().status).to.eql('escalated'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"I want to talk to a person\",\n  \"session_id\": \"escalate-check\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "No session id → Vision mints one",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "pm.test('a session id comes back', () =>",
+                  "  pm.expect(r.session_id).to.be.a('string').and.not.empty);",
+                  "// Send this one twice: two different ids, two separate conversations.",
+                  "console.log('minted session_id: ' + r.session_id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"I want an appointment at Apollo\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "Empty user_said → 400",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('rejected by the schema', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        },
+        {
+          "name": "Unknown field → stripped, not rejected",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Fastify defaults to removeAdditional:true, so `additionalProperties:false`",
+                  "// STRIPS an unknown field rather than 400-ing. That is what we want here:",
+                  "// if Lyzr decides to send an extra field, the voice call survives it.",
+                  "pm.test('tolerated, not rejected', () => pm.response.to.have.status(200));",
+                  "pm.test('still answers normally', () =>",
+                  "  pm.expect(pm.response.json().say).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_said\": \"hello\",\n  \"not_a_field\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base}}/tools/ask_edith",
+              "host": ["{{base}}"],
+              "path": ["tools", "ask_edith"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5 · Inspect",
+      "item": [
+        {
+          "name": "GET /healthz — which EDITH am I talking to?",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('up', () => pm.expect(r.ok).to.be.true);",
+                  "console.log('EDITH: ' + r.edith + '   (band = real two-agent chain, fake = in-process double)');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base}}/healthz", "host": ["{{base}}"], "path": ["healthz"] }
+          }
+        },
+        {
+          "name": "GET /log?since=0 — every BAND hop, phone masked (R4)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const raw = pm.response.text();",
+                  "// R4 + R9: the log is served to a browser, so it must never carry PII.",
+                  "pm.test('no bare ten-digit phone number anywhere in the log', () =>",
+                  "  pm.expect(/\\\"phone\\\":\\\"[0-9]{10}\\\"/.test(raw)).to.be.false);",
+                  "pm.test('no caller name in the log', () =>",
+                  "  pm.expect(raw).to.not.include('Venkat'));",
+                  "console.log(r.entries.length + ' entries, latest seq ' + r.latest);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base}}/log?since=0",
+              "host": ["{{base}}"],
+              "path": ["log"],
+              "query": [{ "key": "since", "value": "0" }]
+            }
+          }
+        },
+        {
+          "name": "GET /openapi.json — the spec Lyzr imports",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test('OpenAPI 3.0.3', () => pm.expect(r.openapi).to.eql('3.0.3'));",
+                  "pm.test('the tool is named ask_edith', () =>",
+                  "  pm.expect(r.paths['/tools/ask_edith'].post.operationId).to.eql('ask_edith'));",
+                  "console.log('server url Lyzr will call: ' + r.servers[0].url);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{base}}/openapi.json", "host": ["{{base}}"], "path": ["openapi.json"] }
+          }
+        }
+      ]
+    }
+  ]
+}
